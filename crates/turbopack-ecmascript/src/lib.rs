@@ -47,7 +47,10 @@ use turbo_tasks::{primitives::StringVc, TryJoinIterExt, Value, ValueToString};
 use turbo_tasks_fs::FileSystemPathVc;
 use turbopack_core::{
     asset::{Asset, AssetContentVc, AssetOptionVc, AssetVc},
-    chunk::{ChunkItem, ChunkItemVc, ChunkVc, ChunkableAsset, ChunkableAssetVc, ChunkingContextVc},
+    chunk::{
+        available_assets::AvailableAssetsVc, ChunkItem, ChunkItemVc, ChunkVc, ChunkableAsset,
+        ChunkableAssetVc, ChunkingContextVc,
+    },
     compile_time_info::CompileTimeInfoVc,
     context::AssetContextVc,
     ident::AssetIdentVc,
@@ -206,8 +209,19 @@ impl Asset for EcmascriptModuleAsset {
 #[turbo_tasks::value_impl]
 impl ChunkableAsset for EcmascriptModuleAsset {
     #[turbo_tasks::function]
-    fn as_chunk(self_vc: EcmascriptModuleAssetVc, context: ChunkingContextVc) -> ChunkVc {
-        EcmascriptChunkVc::new(context, self_vc.as_ecmascript_chunk_placeable()).into()
+    fn as_chunk(
+        self_vc: EcmascriptModuleAssetVc,
+        context: ChunkingContextVc,
+        available_assets: Option<AvailableAssetsVc>,
+        current_availability_root: Option<AssetVc>,
+    ) -> ChunkVc {
+        EcmascriptChunkVc::new(
+            context,
+            self_vc.as_ecmascript_chunk_placeable(),
+            available_assets,
+            current_availability_root,
+        )
+        .into()
     }
 }
 

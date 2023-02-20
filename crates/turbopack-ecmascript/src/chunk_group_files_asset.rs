@@ -5,8 +5,8 @@ use turbo_tasks_fs::FileSystemPathVc;
 use turbopack_core::{
     asset::{Asset, AssetContentVc, AssetVc},
     chunk::{
-        Chunk, ChunkGroupVc, ChunkItem, ChunkItemVc, ChunkReferenceVc, ChunkVc, ChunkableAsset,
-        ChunkableAssetVc, ChunkingContextVc, ChunksVc,
+        available_assets::AvailableAssetsVc, Chunk, ChunkGroupVc, ChunkItem, ChunkItemVc,
+        ChunkReferenceVc, ChunkVc, ChunkableAsset, ChunkableAssetVc, ChunkingContextVc, ChunksVc,
     },
     ident::AssetIdentVc,
     reference::AssetReferencesVc,
@@ -47,7 +47,7 @@ impl ChunkGroupFilesAssetVc {
                     ecma.as_evaluated_chunk(this.chunking_context, this.runtime_entries),
                 )
             } else {
-                ChunkGroupVc::from_asset(this.asset, this.chunking_context)
+                ChunkGroupVc::from_asset(this.asset, this.chunking_context, None, None)
             };
         Ok(chunk_group.chunks())
     }
@@ -74,8 +74,19 @@ impl Asset for ChunkGroupFilesAsset {
 #[turbo_tasks::value_impl]
 impl ChunkableAsset for ChunkGroupFilesAsset {
     #[turbo_tasks::function]
-    fn as_chunk(self_vc: ChunkGroupFilesAssetVc, context: ChunkingContextVc) -> ChunkVc {
-        EcmascriptChunkVc::new(context, self_vc.as_ecmascript_chunk_placeable()).into()
+    fn as_chunk(
+        self_vc: ChunkGroupFilesAssetVc,
+        context: ChunkingContextVc,
+        available_assets: Option<AvailableAssetsVc>,
+        current_availability_root: Option<AssetVc>,
+    ) -> ChunkVc {
+        EcmascriptChunkVc::new(
+            context,
+            self_vc.as_ecmascript_chunk_placeable(),
+            available_assets,
+            current_availability_root,
+        )
+        .into()
     }
 }
 
@@ -90,7 +101,7 @@ impl EcmascriptChunkPlaceable for ChunkGroupFilesAsset {
         Ok(ChunkGroupFilesChunkItem {
             context,
             inner: self_vc,
-            chunk: this.asset.as_chunk(context),
+            chunk: this.asset.as_chunk(context, None, Some(this.asset.into())),
         }
         .cell()
         .into())
