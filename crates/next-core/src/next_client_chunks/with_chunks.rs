@@ -49,8 +49,17 @@ impl Asset for WithChunksAsset {
     }
 
     #[turbo_tasks::function]
-    fn references(&self) -> AssetReferencesVc {
-        unimplemented!()
+    async fn references(&self) -> Result<AssetReferencesVc> {
+        Ok(AssetReferencesVc::cell(vec![WithChunksAssetReference {
+            asset: InChunkingContextAsset {
+                asset: self.asset,
+                chunking_context: self.chunking_context,
+            }
+            .cell()
+            .into(),
+        }
+        .cell()
+        .into()]))
     }
 }
 
@@ -155,18 +164,8 @@ impl ChunkItem for WithChunksChunkItem {
     }
 
     #[turbo_tasks::function]
-    async fn references(&self) -> Result<AssetReferencesVc> {
-        let inner = self.inner.await?;
-        Ok(AssetReferencesVc::cell(vec![WithChunksAssetReference {
-            asset: InChunkingContextAsset {
-                asset: inner.asset,
-                chunking_context: self.inner_context,
-            }
-            .cell()
-            .into(),
-        }
-        .cell()
-        .into()]))
+    fn references(&self) -> AssetReferencesVc {
+        self.inner.references()
     }
 }
 
