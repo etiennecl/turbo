@@ -2,7 +2,7 @@ use std::iter::once;
 
 use anyhow::Result;
 use turbo_tasks::{
-    graph::{GraphTraversal, ReverseTopological},
+    graph::{GraphTraversal, ReverseTopological, SkipDuplicates},
     primitives::{BoolVc, U64Vc},
     TryJoinIterExt, ValueToString,
 };
@@ -92,7 +92,7 @@ impl AvailableAssetsVc {
 async fn chunkable_assets_set(root: AssetVc) -> Result<AssetsSetVc> {
     let assets = GraphTraversal::<ReverseTopological<AssetVc>>::visit(
         once(root),
-        |&asset: &AssetVc| async move {
+        SkipDuplicates::new(|&asset: &AssetVc| async move {
             let mut results = Vec::new();
             for reference in asset.references().await?.iter() {
                 if let Some(chunkable) = ChunkableAssetReferenceVc::resolve_from(reference).await? {
@@ -116,7 +116,7 @@ async fn chunkable_assets_set(root: AssetVc) -> Result<AssetsSetVc> {
                 }
             }
             Ok(results)
-        },
+        }),
     )
     .await
     .completed()?;
