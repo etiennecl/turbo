@@ -5,12 +5,12 @@ use indoc::writedoc;
 use turbo_tasks::{primitives::StringVc, ValueToString};
 use turbopack_core::{
     asset::Asset,
-    chunk::{Chunk, ChunkItem, ChunkItemVc, ChunkingContext, ChunkingContextVc},
+    chunk::{Chunk, ChunkItem, ChunkItemVc, ChunkReferenceVc, ChunkingContext, ChunkingContextVc},
     ident::AssetIdentVc,
     reference::AssetReferencesVc,
 };
 
-use super::chunk_asset::{ManifestChunkAssetReference, ManifestChunkAssetVc};
+use super::chunk_asset::ManifestChunkAssetVc;
 use crate::{
     chunk::{
         item::{
@@ -60,13 +60,10 @@ impl ChunkItem for ManifestLoaderItem {
     }
 
     #[turbo_tasks::function]
-    async fn references(self_vc: ManifestLoaderItemVc) -> Result<AssetReferencesVc> {
-        let this = &*self_vc.await?;
-        Ok(AssetReferencesVc::cell(vec![ManifestChunkAssetReference {
-            manifest: this.manifest,
-        }
-        .cell()
-        .into()]))
+    fn references(&self) -> AssetReferencesVc {
+        AssetReferencesVc::cell(vec![
+            ChunkReferenceVc::new(self.manifest.manifest_chunk()).into()
+        ])
     }
 }
 
