@@ -5,8 +5,8 @@ use turbo_tasks_fs::FileSystemPathVc;
 use turbopack_core::{
     asset::{Asset, AssetContentVc, AssetVc},
     chunk::{
-        Chunk, ChunkGroupVc, ChunkItem, ChunkItemVc, ChunkReferenceVc, ChunkVc, ChunkableAsset,
-        ChunkableAssetVc, ChunkingContextVc, ChunksVc,
+        Chunk, ChunkGroupVc, ChunkItem, ChunkItemVc, ChunkListReferenceVc, ChunkReferenceVc,
+        ChunkVc, ChunkableAsset, ChunkableAssetVc, ChunkingContext, ChunkingContextVc,
     },
     ident::AssetIdentVc,
     reference::AssetReferencesVc,
@@ -33,23 +33,40 @@ pub struct ChunkGroupFilesAsset {
     pub asset: ChunkableAssetVc,
     pub chunking_context: ChunkingContextVc,
     pub base_path: FileSystemPathVc,
+    pub server_root: FileSystemPathVc,
     pub runtime_entries: Option<EcmascriptChunkPlaceablesVc>,
+}
+
+#[turbo_tasks::function]
+fn chunk_list_modifier() -> StringVc {
+    StringVc::cell("chunk list".to_string())
 }
 
 #[turbo_tasks::value_impl]
 impl ChunkGroupFilesAssetVc {
     #[turbo_tasks::function]
-    async fn chunks(self) -> Result<ChunksVc> {
+    async fn chunk_group(self) -> Result<ChunkGroupVc> {
         let this = self.await?;
         let chunk_group =
             if let Some(ecma) = EcmascriptModuleAssetVc::resolve_from(this.asset).await? {
-                ChunkGroupVc::from_chunk(
-                    ecma.as_evaluated_chunk(this.chunking_context, this.runtime_entries),
-                )
+                ChunkGroupVc::from_chunk(ecma.as_evaluated_chunk(
+                    this.chunking_context,
+                    this.runtime_entries,
+                    Some(self.chunk_list_path()),
+                ))
             } else {
                 ChunkGroupVc::from_asset(this.asset, this.chunking_context)
             };
-        Ok(chunk_group.chunks())
+        Ok(chunk_group)
+    }
+
+    #[turbo_tasks::function]
+    async fn chunk_list_path(self) -> Result<FileSystemPathVc> {
+        let this = &*self.await?;
+        Ok(this.chunking_context.chunk_path(
+            this.asset.ident().with_modifier(chunk_list_modifier()),
+            ".json",
+        ))
     }
 }
 
@@ -118,7 +135,7 @@ impl EcmascriptChunkItem for ChunkGroupFilesChunkItem {
 
     #[turbo_tasks::function]
     async fn content(&self) -> Result<EcmascriptChunkItemContentVc> {
-        let chunks = self.inner.chunks();
+        let chunks = self.inner.chunk_group().chunks();
         let mut data = Vec::new();
         let base_path = self.inner.await?.base_path.await?;
         for chunk in chunks.await?.iter() {
@@ -144,16 +161,27 @@ impl ChunkItem for ChunkGroupFilesChunkItem {
 
     #[turbo_tasks::function]
     async fn references(&self) -> Result<AssetReferencesVc> {
-        let chunks = self.inner.chunks();
+        let chunk_group = self.inner.chunk_group();
+        let chunks = chunk_group.chunks();
 
-        Ok(AssetReferencesVc::cell(
-            chunks
-                .await?
-                .iter()
-                .copied()
-                .map(ChunkReferenceVc::new)
-                .map(Into::into)
-                .collect(),
-        ))
+        let mut references: Vec<_> = chunks
+            .await?
+            .iter()
+            .copied()
+            .map(ChunkReferenceVc::new)
+            .map(Into::into)
+            .collect();
+
+        // This creates the chunk list corresponding to this chunk group.
+        references.push(
+            ChunkListReferenceVc::new(
+                self.inner.await?.server_root,
+                chunk_group,
+                self.inner.chunk_list_path(),
+            )
+            .into(),
+        );
+
+        Ok(AssetReferencesVc::cell(references))
     }
 }

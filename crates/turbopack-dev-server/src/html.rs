@@ -1,14 +1,14 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use mime_guess::mime::TEXT_HTML_UTF_8;
-use turbo_tasks::{debug::ValueDebug, primitives::StringVc};
+use turbo_tasks::primitives::StringVc;
 use turbo_tasks_fs::{File, FileSystemPathVc};
 use turbo_tasks_hash::{encode_hex, Xxh3Hash64Hasher};
 use turbopack_core::{
     asset::{Asset, AssetContentVc, AssetVc},
     chunk::{Chunk, ChunkGroupVc, ChunkReferenceVc},
     ident::AssetIdentVc,
-    reference::AssetReferencesVc,
-    version::{Update, UpdateVc, Version, VersionVc, VersionedContent, VersionedContentVc},
+    reference::{AssetReferenceVc, AssetReferencesVc},
+    version::{Version, VersionVc, VersionedContent, VersionedContentVc},
 };
 
 /// The HTML entry point of the dev server.
@@ -19,6 +19,7 @@ use turbopack_core::{
 pub struct DevHtmlAsset {
     path: FileSystemPathVc,
     chunk_groups: Vec<ChunkGroupVc>,
+    additional_references: Vec<AssetReferenceVc>,
     body: Option<String>,
 }
 
@@ -43,6 +44,7 @@ impl Asset for DevHtmlAsset {
                 references.push(ChunkReferenceVc::new(*chunk).into());
             }
         }
+        references.extend(self.additional_references.clone());
         Ok(AssetReferencesVc::cell(references))
     }
 
@@ -54,10 +56,15 @@ impl Asset for DevHtmlAsset {
 
 impl DevHtmlAssetVc {
     /// Create a new dev HTML asset.
-    pub fn new(path: FileSystemPathVc, chunk_groups: Vec<ChunkGroupVc>) -> Self {
+    pub fn new(
+        path: FileSystemPathVc,
+        chunk_groups: Vec<ChunkGroupVc>,
+        additional_references: Vec<AssetReferenceVc>,
+    ) -> Self {
         DevHtmlAsset {
             path,
             chunk_groups,
+            additional_references,
             body: None,
         }
         .cell()
@@ -72,6 +79,7 @@ impl DevHtmlAssetVc {
         DevHtmlAsset {
             path,
             chunk_groups,
+            additional_references: vec![],
             body: Some(body),
         }
         .cell()
@@ -182,28 +190,6 @@ impl VersionedContent for DevHtmlAssetContent {
     #[turbo_tasks::function]
     fn version(self_vc: DevHtmlAssetContentVc) -> VersionVc {
         self_vc.version().into()
-    }
-
-    #[turbo_tasks::function]
-    async fn update(self_vc: DevHtmlAssetContentVc, from_version: VersionVc) -> Result<UpdateVc> {
-        let from_version = DevHtmlAssetVersionVc::resolve_from(from_version)
-            .await?
-            .context("version must be an `DevHtmlAssetVersionVc`")?;
-        let to_version = self_vc.version();
-
-        let to = to_version.await?;
-        let from = from_version.await?;
-
-        if to.content.chunk_paths == from.content.chunk_paths {
-            return Ok(Update::None.into());
-        }
-
-        Err(anyhow!(
-            "cannot update `DevHtmlAssetContentVc` from version {:?} to version {:?}: the \
-             versions contain different chunks, which is not yet supported",
-            from_version.dbg().await?,
-            to_version.dbg().await?,
-        ))
     }
 }
 
