@@ -120,11 +120,13 @@ func RealRun(
 	if err := runState.Close(base.UI); err != nil {
 		return errors.Wrap(err, "error with profiler")
 	}
+
 	if exitCode != 0 {
 		return &process.ChildExit{
 			ExitCode: exitCode,
 		}
 	}
+
 	return nil
 }
 
@@ -287,12 +289,14 @@ func (ec *execContext) exec(ctx gocontext.Context, packageTask *nodes.PackageTas
 		return err
 	}
 
+	var expandedOutputs runcache.ExpandedOutputs
+
 	duration := time.Since(cmdTime)
 	// Close off our outputs and cache them
 	if err := closeOutputs(); err != nil {
 		ec.logError(progressLogger, "", err)
 	} else {
-		if err = taskCache.SaveOutputs(ctx, progressLogger, prefixedUI, int(duration.Milliseconds())); err != nil {
+		if expandedOutputs, err = taskCache.SaveOutputs(ctx, progressLogger, prefixedUI, int(duration.Milliseconds())); err != nil {
 			ec.logError(progressLogger, "", fmt.Errorf("error caching output: %w", err))
 		}
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/vercel/turbo/cli/internal/fs"
 	"github.com/vercel/turbo/cli/internal/graph"
 	"github.com/vercel/turbo/cli/internal/nodes"
+	"github.com/vercel/turbo/cli/internal/runcache"
 	"github.com/vercel/turbo/cli/internal/taskhash"
 	"github.com/vercel/turbo/cli/internal/turbopath"
 	"github.com/vercel/turbo/cli/internal/util"
@@ -349,6 +350,7 @@ type taskSummary struct {
 	Dependents             []string                              `json:"dependents"`
 	ResolvedTaskDefinition *fs.TaskDefinition                    `json:"resolvedTaskDefinition"`
 	ExpandedInputs         map[turbopath.AnchoredUnixPath]string `json:"expandedInputs"`
+	ExpandedOutputs        *runcache.ExpandedOutputs             `json:"expandedOutputs"`
 	Framework              string                                `json:"framework"`
 }
 
@@ -364,6 +366,7 @@ type singlePackageTaskSummary struct {
 	Dependents             []string                              `json:"dependents"`
 	ResolvedTaskDefinition *fs.TaskDefinition                    `json:"resolvedTaskDefinition"`
 	ExpandedInputs         map[turbopath.AnchoredUnixPath]string `json:"expandedInputs"`
+	ExpandedOutputs        *runcache.ExpandedOutputs             `json:"expandedOutputs"`
 	Framework              string                                `json:"framework"`
 }
 
@@ -389,5 +392,6 @@ func (ht *taskSummary) toSinglePackageTask() singlePackageTaskSummary {
 		ResolvedTaskDefinition: ht.ResolvedTaskDefinition,
 		Framework:              ht.Framework,
 		ExpandedInputs:         ht.ExpandedInputs,
+		ExpandedOutputs:        ht.ExpandedOutputs,
 	}
 }

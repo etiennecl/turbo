@@ -37,6 +37,7 @@ type Tracker struct {
 	packageInputsHashes         packageFileHashes
 	packageInputsExpandedHashes map[packageFileHashKey]map[turbopath.AnchoredUnixPath]string
 	packageTaskHashes           map[string]string // taskID -> hash
+	HashableEnvPairs            map[string][]string
 	PackageTaskFramework        map[string]string
 }
 
@@ -47,6 +48,7 @@ func NewTracker(rootNode string, globalHash string, pipeline fs.Pipeline) *Track
 		globalHash:           globalHash,
 		pipeline:             pipeline,
 		packageTaskHashes:    make(map[string]string),
+		HashableEnvPairs:     make(map[string][]string),
 		PackageTaskFramework: make(map[string]string),
 	}
 }
@@ -324,6 +326,7 @@ func (th *Tracker) CalculateTaskHash(packageTask *nodes.PackageTask, dependencyS
 	}
 	th.mu.Lock()
 	th.packageTaskHashes[packageTask.TaskID] = hash
+	th.HashableEnvPairs[packageTask.TaskID] = hashableEnvPairs
 	if framework != nil {
 		th.PackageTaskFramework[packageTask.TaskID] = framework.Slug
 	}
