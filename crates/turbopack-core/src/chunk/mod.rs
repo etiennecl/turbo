@@ -443,6 +443,8 @@ where
 enum ChunkContentGraphNode<I> {
     // Chunk items that are placed into the current chunk
     ChunkItem(I),
+    // Asset that is already available and doesn't need to be included
+    AvailableAsset(AssetVc),
     // Chunks that are loaded in parallel to the current chunk
     Chunk(ChunkVc),
     // Chunk groups that are referenced from the current chunk, but
@@ -489,6 +491,16 @@ where
     let mut graph_nodes = vec![];
 
     for asset in assets {
+        if let Some(available_assets) = context.available_assets {
+            if *available_assets.includes(asset).await? {
+                graph_nodes.push((
+                    Some((asset, chunking_type)),
+                    ChunkContentGraphNode::AvailableAsset(asset),
+                ));
+                continue;
+            }
+        }
+
         let chunkable_asset = match ChunkableAssetVc::resolve_from(asset).await? {
             Some(chunkable_asset) => chunkable_asset,
             _ => {
@@ -747,6 +759,7 @@ where
 
     for graph_node in graph_nodes {
         match graph_node {
+            ChunkContentGraphNode::AvailableAsset(asset) => {}
             ChunkContentGraphNode::ChunkItem(chunk_item) => {
                 chunk_items.push(chunk_item);
             }
