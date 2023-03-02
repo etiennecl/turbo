@@ -28,7 +28,9 @@ axum-server = "0.4.4"
 chrono = { version = "0.4.23", features = ["serde"] }
 clap = { version = "4.0.22", features = ["derive"] }
 clap_complete = "4.0.6"
-command-group = { version = "2.0.1", features = ["with-tokio"] }
+command-group = { version = "2.0.1", features = [
+  "with-tokio",
+], git = "https://github.com/arlyon/command-group" }
 config = "0.13"
 console = "0.15.5"
 dialoguer = { version = "0.10.3", features = ["fuzzy-select"] }

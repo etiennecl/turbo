@@ -1027,6 +1027,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "command-group"
+version = "2.0.1"
+source = "git+https://github.com/arlyon/command-group#d7281d59ea1015252f4129d6577fe7b724d2445c"
+dependencies = [
+ "async-trait",
+ "nix 0.26.2",
+ "tokio",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "1.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7696,7 +7707,7 @@ dependencies = [
  "build-target",
  "clap 4.1.4",
  "clap_complete",
- "command-group",
+ "command-group 2.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "dunce",
  "itertools",
  "log",
@@ -8234,7 +8245,7 @@ dependencies = [
  "chrono",
  "clap 4.1.4",
  "clap_complete",
- "command-group",
+ "command-group 2.0.1 (git+https://github.com/arlyon/command-group)",
  "config",
  "console",
  "dialoguer",
