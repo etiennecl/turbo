@@ -209,12 +209,14 @@ jobs:
       - uses: actions/cache/restore@v3
         id: restore-build
         with:
-          path: ./*
+          path: |
+            ./*
+            /var/lib/docker/volumes
           key: ${{ inputs.version }}-${{ github.sha }}
           fail-on-cache-miss: true
 
       - run: |
-          docker run --rm -v $(pwd):/work mcr.microsoft.com/playwright:v1.28.1-focal /bin/bash -c "cd /work && ls && curl https://install-node.vercel.app/v16 | FORCE=1 bash && node -v && npm i -g pnpm@${PNPM_VERSION} && __INTERNAL_CUSTOM_TURBOPACK_BINARY=${NEXT_DEV_BIN} __INTERNAL_NEXT_DEV_TEST_TURBO_GLOB_MATCH=${NEXT_DEV_TEST_GLOB} NEXT_TEST_SKIP_RETRY_MANIFEST=${FAILED_TEST_LIST_PATH} NEXT_TEST_CONTINUE_ON_ERROR=TRUE NEXT_E2E_TEST_TIMEOUT=240000 NEXT_TEST_JOB=1 xvfb-run node run-tests.js -g ${{ matrix.group }}/25 -c 1 >> /proc/1/fd/1"
+          docker run --rm --mount src=nextjs-test-volume,dst=/work mcr.microsoft.com/playwright:v1.28.1-focal /bin/bash -c "cd /work && ls && curl https://install-node.vercel.app/v16 | FORCE=1 bash && node -v && npm i -g pnpm@${PNPM_VERSION} && __INTERNAL_CUSTOM_TURBOPACK_BINARY=${NEXT_DEV_BIN} __INTERNAL_NEXT_DEV_TEST_TURBO_GLOB_MATCH=${NEXT_DEV_TEST_GLOB} NEXT_TEST_SKIP_RETRY_MANIFEST=${FAILED_TEST_LIST_PATH} NEXT_TEST_CONTINUE_ON_ERROR=TRUE NEXT_E2E_TEST_TIMEOUT=240000 NEXT_TEST_JOB=1 xvfb-run node run-tests.js -g ${{ matrix.group }}/25 -c 1 >> /proc/1/fd/1"
         name: Test Integration
         continue-on-error: true
         env:

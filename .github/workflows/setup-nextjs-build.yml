@@ -62,6 +62,11 @@ jobs:
           echo "NEXTJS_VERSION=${{ inputs.version != '' && inputs.version || env.NEXJS_LATEST_VERSION }}" >> $GITHUB_ENV
           echo "Checking out Next.js ${{ env.NEXTJS_VERSION }}"
 
+      - name: Build next.js volume
+        run: |
+          docker volume create nextjs-test-volume
+          docker run --rm --mount src=nextjs-test-volume,dst=/work mcr.microsoft.com/playwright:v1.28.1-focal /bin/bash -c "apt update && apt install build-essential libssl-dev zsh -y && && apt-get install --reinstall pkg-config libfontconfig1-dev cmake-data -y curl https://install-node.vercel.app/v16 | FORCE=1 bash && npm i -g pnpm@${PNPM_VERSION} && git clone https://github.com/vercel/next.js /work && cd /work && git checkout ${{ inputs.version }} && pnpm install && pnpm run build"
+
       # https://github.com/actions/virtual-environments/issues/1187
       - name: tune linux network
         run: sudo ethtool -K eth0 tx off rx off
@@ -127,5 +132,7 @@ jobs:
         uses: actions/cache/save@v3
         id: cache-build
         with:
-          path: ./*
+          path: |
+            ./*
+            /var/lib/docker/volumes
           key: ${{ inputs.version }}-${{ github.sha }}
