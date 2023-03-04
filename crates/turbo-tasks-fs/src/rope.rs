@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     cmp::min,
     fmt,
-    io::{self, BufRead, Read, Result as IoResult, Write},
+    io::{BufRead, Read, Result as IoResult, Write},
     mem,
     ops::{AddAssign, Deref},
     pin::Pin,
@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use bytes::{Buf, Bytes};
 use futures::Stream;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tokio::io::{AsyncRead, ReadBuf};
+use tokio::io::{AsyncBufRead, AsyncRead, ReadBuf};
 use turbo_tasks_hash::{DeterministicHash, DeterministicHasher};
 use RopeElem::{Local, Shared};
 
@@ -620,7 +620,7 @@ impl Iterator for RopeReader {
 }
 
 impl Read for RopeReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         Ok(self.read_internal(buf.len(), &mut ReadBuf::new(buf)))
     }
 }
@@ -630,7 +630,7 @@ impl AsyncRead for RopeReader {
         self: Pin<&mut Self>,
         _cx: &mut TaskContext<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
+    ) -> Poll<IoResult<()>> {
         let this = self.get_mut();
         this.read_internal(buf.remaining(), buf);
         Poll::Ready(Ok(()))
@@ -689,6 +689,58 @@ impl From<RopeElem> for StackElem {
             Local(bytes) => Self::Local(bytes),
             Shared(inner) => Self::Shared(inner, 0),
         }
+    }
+}
+
+pub struct AsyncBufReader<'a, T> {
+    inner: &'a mut T,
+    offset: usize,
+    capacity: usize,
+    buffer: [u8; 8 * 1024],
+}
+
+impl<'a, T: AsyncRead + Unpin + Sized> AsyncBufReader<'a, T> {
+    pub fn new(inner: &'a mut T) -> Self {
+        AsyncBufReader {
+            inner,
+            offset: 0,
+            capacity: 0,
+            buffer: [0; 8 * 1024],
+        }
+    }
+}
+
+impl<'a, T: AsyncRead + Unpin + Sized> AsyncRead for AsyncBufReader<'a, T> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<IoResult<()>> {
+        let inner = Pin::new(&mut self.get_mut().inner);
+        inner.poll_read(cx, buf)
+    }
+}
+
+impl<'a, T: AsyncRead + Unpin + Sized> AsyncBufRead for AsyncBufReader<'a, T> {
+    fn poll_fill_buf(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<IoResult<&[u8]>> {
+        let this = self.get_mut();
+        if this.offset >= this.capacity {
+            let inner = Pin::new(&mut this.inner);
+            let mut buf = ReadBuf::new(&mut this.buffer);
+            match inner.poll_read(cx, &mut buf) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            };
+
+            this.capacity = buf.filled().len();
+            this.offset = 0;
+        }
+        Poll::Ready(Ok(&this.buffer[this.offset..this.capacity]))
+    }
+
+    fn consume(self: Pin<&mut Self>, amt: usize) {
+        self.get_mut().offset += amt;
     }
 }
 

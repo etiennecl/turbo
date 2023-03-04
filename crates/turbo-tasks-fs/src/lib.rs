@@ -21,10 +21,11 @@ pub mod util;
 
 use std::{
     borrow::Cow,
+    cmp::min,
     collections::{HashMap, HashSet},
     fmt::{self, Debug, Display, Formatter},
     fs::FileType,
-    io::{self, ErrorKind},
+    io::{self, BufRead, ErrorKind},
     mem::take,
     path::{Path, PathBuf, MAIN_SEPARATOR},
     sync::{
@@ -47,7 +48,10 @@ use read_glob::read_glob;
 pub use read_glob::{ReadGlobResult, ReadGlobResultVc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::{fs, io::AsyncReadExt};
+use tokio::{
+    fs,
+    io::{AsyncBufReadExt, AsyncReadExt},
+};
 use turbo_tasks::{
     mark_stateful,
     primitives::{BoolVc, StringReadRef, StringVc},
@@ -62,7 +66,7 @@ use self::{json::UnparseableJson, mutex_map::MutexMap};
 use crate::{
     attach::AttachedFileSystemVc,
     retry::{retry_blocking, retry_future},
-    rope::{Rope, RopeReadRef, RopeReader},
+    rope::{AsyncBufReader, Rope, RopeReadRef, RopeReader},
 };
 
 #[turbo_tasks::value_trait]
@@ -314,18 +318,6 @@ impl Debug for DiskFileSystem {
     }
 }
 
-/// Reads the file from disk, without converting the contents into a Vc.
-async fn read_file(path: PathBuf, mutex_map: &MutexMap<PathBuf>) -> Result<FileContent> {
-    let _lock = mutex_map.lock(path.clone()).await;
-    Ok(match retry_future(|| File::from_path(path.clone())).await {
-        Ok(file) => FileContent::new(file),
-        Err(e) if e.kind() == ErrorKind::NotFound => FileContent::NotFound,
-        Err(e) => {
-            bail!(anyhow!(e).context(format!("reading file {}", path.display())))
-        }
-    })
-}
-
 #[turbo_tasks::value_impl]
 impl FileSystem for DiskFileSystem {
     #[turbo_tasks::function]
@@ -333,7 +325,14 @@ impl FileSystem for DiskFileSystem {
         let full_path = self.to_sys_path(fs_path).await?;
         self.register_invalidator(&full_path, true);
 
-        let content = read_file(full_path, &self.mutex_map).await?;
+        let _lock = self.mutex_map.lock(full_path.clone()).await;
+        let content = match retry_future(|| File::from_path(full_path.clone())).await {
+            Ok(file) => FileContent::new(file),
+            Err(e) if e.kind() == ErrorKind::NotFound => FileContent::NotFound,
+            Err(e) => {
+                bail!(anyhow!(e).context(format!("reading file {}", full_path.display())))
+            }
+        };
         Ok(content.cell())
     }
 
@@ -492,17 +491,17 @@ impl FileSystem for DiskFileSystem {
         // Track the file, so that we will rewrite it if it ever changes.
         fs_path.track().await?;
 
+        let _lock = self.mutex_map.lock(full_path.clone()).await;
+
         // We perform an untracked read here, so that this write is not dependent on the
         // read value (and the memory it holds). It's possible the read can be freed if
         // no other task tries to read it, which is entirely likely for a output file.
-        let old_content = read_file(full_path.clone(), &self.mutex_map).await?;
-
-        if *content == old_content {
+        let compare = File::file_contents_equal(&content, full_path.clone()).await?;
+        if compare == Some(true) {
             return Ok(CompletionVc::unchanged());
         }
-        let _lock = self.mutex_map.lock(full_path.clone()).await;
 
-        let create_directory = old_content == FileContent::NotFound;
+        let create_directory = compare == None;
         match &*content {
             FileContent::Content(file) => {
                 if create_directory {
@@ -1227,6 +1226,14 @@ pub struct File {
     content: Rope,
 }
 
+fn extract_disk_access<T>(value: io::Result<T>, path: &PathBuf) -> Result<Option<T>> {
+    match value {
+        Ok(v) => Ok(Some(v)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(anyhow!(e).context(format!("reading file {}", path.display()))),
+    }
+}
+
 impl File {
     /// Reads a [File] from the given path
     async fn from_path(p: PathBuf) -> io::Result<Self> {
@@ -1240,6 +1247,54 @@ impl File {
             meta: metadata.into(),
             content: Rope::from(output),
         })
+    }
+
+    async fn file_contents_equal(contents: &FileContent, path: PathBuf) -> Result<Option<bool>> {
+        let old_file = extract_disk_access(retry_future(|| fs::File::open(&path)).await, &path)?;
+        let Some(mut old_file) = old_file else {
+            return Ok(match contents {
+                FileContent::NotFound => Some(true),
+                _ => None,
+            });
+        };
+        // We know old file exists, does the new file?
+        let FileContent::Content(new_file) = contents else {
+            return Ok(Some(false));
+        };
+
+        let old_meta = extract_disk_access(retry_future(|| old_file.metadata()).await, &path)?;
+        let Some(old_meta) = old_meta else {
+            // If we failed to get meta, then the old file has been deleted between the handle open.
+            // In which case, we just pretend the file never existed.
+            return Ok(None);
+        };
+        // If the meta is different, we need to rewrite the file to update it.
+        if new_file.meta != old_meta.into() {
+            return Ok(Some(false));
+        }
+
+        // So meta matches, and we have a file handle. Let's stream the contents to see
+        // if they matc match.
+        let mut new_contents = new_file.read();
+        let mut old_contents = AsyncBufReader::new(&mut old_file);
+        Ok(Some(loop {
+            let new_chunk = new_contents.fill_buf()?;
+            let Ok(old_chunk) = old_contents.fill_buf().await else {
+                break false;
+            };
+
+            let len = min(new_chunk.len(), old_chunk.len());
+            if len == 0 {
+                break new_chunk.len() == old_chunk.len();
+            }
+
+            if new_chunk[0..len] != old_chunk[0..len] {
+                break false;
+            }
+
+            new_contents.consume(len);
+            old_contents.consume(len);
+        }))
     }
 
     /// Creates a [File] from raw bytes.
